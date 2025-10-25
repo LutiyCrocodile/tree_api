@@ -21,7 +21,6 @@ import enum
 Base = declarative_base()
 
 
-# Enums
 class GenderEnum(str, enum.Enum):
     MALE = "male"
     FEMALE = "female"
@@ -40,7 +39,6 @@ class AccessLevelEnum(str, enum.Enum):
     EDIT = "edit"
 
 
-# Models
 class User(Base):
     __tablename__ = "users"
 
@@ -52,7 +50,6 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 
-    # Relationships
     family_trees = relationship(
         "FamilyTree", back_populates="user", cascade="all, delete-orphan"
     )
@@ -78,7 +75,6 @@ class FamilyTree(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationships
     user = relationship("User", back_populates="family_trees")
     persons = relationship(
         "Person", back_populates="tree", cascade="all, delete-orphan"
@@ -113,10 +109,8 @@ class Person(Base):
     bio = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     tree = relationship("FamilyTree", back_populates="persons")
 
-    # Relationships where this person is the subject
     relationships_as_person = relationship(
         "Relationship",
         foreign_keys="Relationship.person_id",
@@ -124,7 +118,6 @@ class Person(Base):
         cascade="all, delete-orphan",
     )
 
-    # Relationships where this person is the related person
     relationships_as_related = relationship(
         "Relationship",
         foreign_keys="Relationship.related_person_id",
@@ -136,7 +129,6 @@ class Person(Base):
         "MediaFile", back_populates="person", cascade="all, delete-orphan"
     )
 
-    # Constraints
     __table_args__ = (
         CheckConstraint(
             "death_date IS NULL OR death_date >= birth_date",
@@ -163,7 +155,6 @@ class Relationship(Base):
     relationship_type = Column(SQLEnum(RelationshipTypeEnum), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     tree = relationship("FamilyTree", back_populates="relationships")
     person = relationship(
         "Person", foreign_keys=[person_id], back_populates="relationships_as_person"
@@ -174,7 +165,6 @@ class Relationship(Base):
         back_populates="relationships_as_related",
     )
 
-    # Constraints
     __table_args__ = (
         CheckConstraint(
             "person_id != related_person_id", name="check_no_self_relationship"
@@ -200,7 +190,6 @@ class MediaFile(Base):
     mime_type = Column(String(100))
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     tree = relationship("FamilyTree", back_populates="media_files")
     person = relationship("Person", back_populates="media_files")
 
@@ -223,14 +212,12 @@ class TreeShare(Base):
     access_level = Column(SQLEnum(AccessLevelEnum), default=AccessLevelEnum.VIEW)
     shared_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     tree = relationship("FamilyTree", back_populates="shares")
     user = relationship("User", foreign_keys=[user_id], back_populates="shared_trees")
     sharer = relationship(
         "User", foreign_keys=[shared_by], back_populates="given_shares"
     )
 
-    # Constraints
     __table_args__ = (
         CheckConstraint("user_id != shared_by", name="check_no_self_share"),
     )

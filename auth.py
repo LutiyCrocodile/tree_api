@@ -1,4 +1,3 @@
-# auth.py
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -14,7 +13,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Настройки JWT
 SECRET_KEY = os.environ.get("SECRET_KEY", "VERY_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120

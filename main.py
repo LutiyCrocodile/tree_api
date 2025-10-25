@@ -1,5 +1,4 @@
-# main.py
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -25,25 +24,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Family Tree API", version="1.0.0", lifespan=lifespan)
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-#
-# @app.on_event("startup")
-# async def startup_event():
-#     await create_tables()
 
-
-# Auth endpoints
 @app.post("/auth/register", response_model=Token)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
-    # Проверка существующего пользователя
     result = await db.execute(
         select(User).where(
             (User.username == user_data.username) | (User.email == user_data.email)
@@ -57,7 +48,6 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
             detail="Username or email already registered",
         )
 
-    # Создание пользователя
     hashed_password = get_password_hash(user_data.password)
     user = User(
         username=user_data.username,
@@ -70,7 +60,6 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    # Создание токена
     access_token = create_access_token(data={"sub": user.username})
 
     return Token(
@@ -94,7 +83,6 @@ async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
     )
 
 
-# Family Tree endpoints
 @app.get("/trees", response_model=List[FamilyTreeResponse])
 async def get_user_trees(
     current_user: User = Depends(get_current_active_user),
@@ -105,7 +93,6 @@ async def get_user_trees(
     )
     trees = result.scalars().all()
 
-    # Добавляем количество людей в каждом дереве
     trees_with_count = []
     for tree in trees:
         person_count_result = await db.execute(
@@ -137,14 +124,17 @@ async def create_tree(
     return FamilyTreeResponse.from_orm(tree)
 
 
-# Person endpoints
 @app.get("/trees/{tree_id}/persons", response_model=List[PersonResponse])
 async def get_tree_persons(
     tree_id: UUID,
+    include_relationships: bool = Query(
+        False, description="Включить базовую информацию о связях"
+    ),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Проверка прав доступа к дереву
+    """Получить всех людей в дереве (опционально с базовой информацией о связях)"""
+
     result = await db.execute(
         select(FamilyTree).where(
             (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
@@ -161,7 +151,21 @@ async def get_tree_persons(
     result = await db.execute(select(Person).where(Person.tree_id == tree_id))
     persons = result.scalars().all()
 
-    return [PersonResponse.from_orm(person) for person in persons]
+    person_responses = []
+    for person in persons:
+        person_data = PersonResponse.from_orm(person)
+
+        if include_relationships:
+            relationships_count = await db.execute(
+                select(func.count(Relationship.id)).where(
+                    Relationship.person_id == person.id
+                )
+            )
+            person_data.relationships = [{"count": relationships_count.scalar()}]
+
+        person_responses.append(person_data)
+
+    return person_responses
 
 
 @app.post("/trees/{tree_id}/persons", response_model=PersonResponse)
@@ -171,7 +175,6 @@ async def create_person(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Проверка прав доступа к дереву
     result = await db.execute(
         select(FamilyTree).where(
             (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
@@ -194,15 +197,13 @@ async def create_person(
     return PersonResponse.from_orm(person)
 
 
-# Relationship endpoints
-@app.post("/trees/{tree_id}/relationships", response_model=RelationshipResponse)
-async def create_relationship(
+@app.get("/trees/{tree_id}/full", response_model=TreeWithPersonsResponse)
+async def get_full_tree(
     tree_id: UUID,
-    relationship_data: RelationshipCreate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Проверка прав доступа и существования людей
+    """Получить полное дерево со всеми людьми и их связями"""
     result = await db.execute(
         select(FamilyTree).where(
             (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
@@ -216,7 +217,37 @@ async def create_relationship(
             detail="Tree not found or access denied",
         )
 
-    # Проверка что оба человека существуют в этом дереве
+    tree_data = FamilyTreeResponse.from_orm(tree)
+
+    persons_with_relationships = await get_tree_persons_with_relationships(
+        tree_id, current_user, db
+    )
+
+    return TreeWithPersonsResponse(
+        **tree_data.dict(), persons=persons_with_relationships
+    )
+
+
+@app.post("/trees/{tree_id}/relationships", response_model=RelationshipResponse)
+async def create_relationship(
+    tree_id: UUID,
+    relationship_data: RelationshipCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FamilyTree).where(
+            (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
+        )
+    )
+    tree = result.scalar_one_or_none()
+
+    if not tree:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tree not found or access denied",
+        )
+
     person_result = await db.execute(
         select(Person).where(
             (Person.id == relationship_data.person_id) & (Person.tree_id == tree_id)
@@ -245,6 +276,167 @@ async def create_relationship(
     await db.refresh(relationship)
 
     return RelationshipResponse.from_orm(relationship)
+
+
+@app.post(
+    "/trees/{tree_id}/relationships/batch", response_model=List[RelationshipResponse]
+)
+async def create_relationships_batch(
+    tree_id: UUID,
+    relationships_data: List[RelationshipCreate],
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать несколько связей за один запрос"""
+    result = await db.execute(
+        select(FamilyTree).where(
+            (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
+        )
+    )
+    tree = result.scalar_one_or_none()
+
+    if not tree:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tree not found or access denied",
+        )
+
+    created_relationships = []
+
+    for rel_data in relationships_data:
+        person_result = await db.execute(
+            select(Person).where(
+                (Person.id == rel_data.person_id) & (Person.tree_id == tree_id)
+            )
+        )
+        related_person_result = await db.execute(
+            select(Person).where(
+                (Person.id == rel_data.related_person_id) & (Person.tree_id == tree_id)
+            )
+        )
+
+        if (
+            not person_result.scalar_one_or_none()
+            or not related_person_result.scalar_one_or_none()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"One or both persons not found in this tree: {rel_data.person_id}, {rel_data.related_person_id}",
+            )
+
+        relationship = Relationship(tree_id=tree_id, **rel_data.dict())
+
+        db.add(relationship)
+        created_relationships.append(relationship)
+
+    await db.commit()
+
+    for rel in created_relationships:
+        await db.refresh(rel)
+
+    return [RelationshipResponse.from_orm(rel) for rel in created_relationships]
+
+
+@app.get(
+    "/trees/{tree_id}/persons-with-relationships",
+    response_model=List[PersonWithRelationships],
+)
+async def get_tree_persons_with_relationships(
+    tree_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Получить всех людей в дереве с их связями"""
+    result = await db.execute(
+        select(FamilyTree).where(
+            (FamilyTree.id == tree_id) & (FamilyTree.user_id == current_user.id)
+        )
+    )
+    tree = result.scalar_one_or_none()
+
+    if not tree:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tree not found or access denied",
+        )
+
+    result = await db.execute(select(Person).where(Person.tree_id == tree_id))
+    persons = result.scalars().all()
+
+    result = await db.execute(
+        select(Relationship).where(Relationship.tree_id == tree_id)
+    )
+    relationships = result.scalars().all()
+
+    persons_dict = {
+        person.id: PersonWithRelationships.from_orm(person) for person in persons
+    }
+
+    for person in persons_dict.values():
+        person.parents = []
+        person.children = []
+        person.spouses = []
+        person.siblings = []
+
+    for rel in relationships:
+        person = persons_dict.get(rel.person_id)
+        related_person = persons_dict.get(rel.related_person_id)
+
+        if person and related_person:
+            if rel.relationship_type == RelationshipType.PARENT:
+                person.children.append(related_person)
+            elif rel.relationship_type == RelationshipType.CHILD:
+                person.parents.append(related_person)
+            elif rel.relationship_type == RelationshipType.SPOUSE:
+                person.spouses.append(related_person)
+            elif rel.relationship_type == RelationshipType.SIBLING:
+                person.siblings.append(related_person)
+
+    return list(persons_dict.values())
+
+
+@app.get(
+    "/persons/{person_id}/relationships", response_model=Dict[str, List[PersonResponse]]
+)
+async def get_person_relationships(
+    person_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Получить все связи конкретного человека"""
+    result = await db.execute(
+        select(Person)
+        .join(FamilyTree)
+        .where((Person.id == person_id) & (FamilyTree.user_id == current_user.id))
+    )
+    person = result.scalar_one_or_none()
+
+    if not person:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Person not found or access denied",
+        )
+
+    result = await db.execute(
+        select(Relationship, Person)
+        .join(Person, Relationship.related_person_id == Person.id)
+        .where(Relationship.person_id == person_id)
+    )
+    relationships_data = result.all()
+
+    relationships = {"parents": [], "children": [], "spouses": [], "siblings": []}
+
+    for rel, related_person in relationships_data:
+        if rel.relationship_type == RelationshipType.PARENT:
+            relationships["parents"].append(PersonResponse.from_orm(related_person))
+        elif rel.relationship_type == RelationshipType.CHILD:
+            relationships["children"].append(PersonResponse.from_orm(related_person))
+        elif rel.relationship_type == RelationshipType.SPOUSE:
+            relationships["spouses"].append(PersonResponse.from_orm(related_person))
+        elif rel.relationship_type == RelationshipType.SIBLING:
+            relationships["siblings"].append(PersonResponse.from_orm(related_person))
+
+    return relationships
 
 
 if __name__ == "__main__":

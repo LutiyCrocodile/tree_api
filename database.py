@@ -1,4 +1,3 @@
-# database.py
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -24,18 +23,15 @@ class Settings:
 settings = Settings()
 
 
-# Создание асинхронного движка
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=True,  # Логирование SQL запросов (отключить в продакшене)
     future=True,
 )
 
-# Асинхронная сессия
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-# Dependency для FastAPI
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:
         try:
@@ -44,13 +40,11 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
-# Функция для создания таблиц
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-# Функция для проверки соединения с БД
 async def test_database_connection():
     try:
         async with AsyncSessionLocal() as session:

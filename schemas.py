@@ -1,4 +1,3 @@
-# schemas.py
 from pydantic import BaseModel, EmailStr, validator
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
@@ -6,7 +5,6 @@ from uuid import UUID
 import enum
 
 
-# Enums для Pydantic
 class Gender(str, enum.Enum):
     MALE = "male"
     FEMALE = "female"
@@ -25,7 +23,6 @@ class AccessLevel(str, enum.Enum):
     EDIT = "edit"
 
 
-# Базовые схемы
 class UserBase(BaseModel):
     username: str
     email: EmailStr
@@ -86,7 +83,7 @@ class PersonBase(BaseModel):
     bio: Optional[str] = None
 
     class Config:
-        use_enum_values = True  # Это важно для корректной работы с enum
+        use_enum_values = True
 
 
 class PersonCreate(PersonBase):
@@ -180,7 +177,6 @@ class TreeShareResponse(TreeShareBase):
         use_enum_values = True
 
 
-# Специальные схемы для сложных операций
 class PersonWithRelationships(PersonResponse):
     parents: List["PersonResponse"] = list()
     children: List["PersonResponse"] = list()
@@ -196,7 +192,6 @@ class UserWithTrees(UserResponse):
     family_trees: List[FamilyTreeResponse] = list()
 
 
-# Схемы для токенов
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -207,5 +202,21 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 
-# Рекурсивные обновления для аннотаций
+class RelationshipInfo(BaseModel):
+    relationship_type: RelationshipType
+    related_person: "PersonResponse"
+
+
+class PersonWithRelationships(PersonResponse):
+    parents: List["PersonResponse"] = []
+    children: List["PersonResponse"] = []
+    spouses: List["PersonResponse"] = []
+    siblings: List["PersonResponse"] = []
+
+
+class TreeWithPersonsResponse(FamilyTreeResponse):
+    persons: List[PersonWithRelationships] = []
+
+
+RelationshipInfo.update_forward_refs()
 PersonWithRelationships.update_forward_refs()
