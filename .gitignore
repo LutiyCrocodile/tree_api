@@ -1,0 +1,55 @@
+.env
+.env/
+.idea
+.idea/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.tox/
+.coverage
+.coverage.*
+.hypothesis/
+htmlcov/
+
+# Virtual environment
+.venv/
+venv/
+env/
+/bin/
+/include/
+/lib/
+/share/
+
+# Editors
+.vscode/ # VS Code specific files
+.idea/ # PyCharm specific files
+*.swp
+*.bak
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Miscellaneous
+.DS_Store # macOS specific
